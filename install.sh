@@ -14,10 +14,38 @@ NVIM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/nvim"
 PLUGINS_DIR="$NVIM_DIR/lua/custom/plugins"
 FORCE_REPLACE=false
 COPIED_FILES=()
+HOST_DISTROBOX_MODE=false
+DISTROBOX_NAME=""
 
-if [[ "${1:-}" == "--force" ]]; then
-  FORCE_REPLACE=true
-fi
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force)
+        FORCE_REPLACE=true
+        ;;
+      --host-distrobox)
+        HOST_DISTROBOX_MODE=true
+        DISTROBOX_NAME="${2:-auto}"
+        if [[ "$DISTROBOX_NAME" != "auto" ]]; then
+          shift
+        fi
+        ;;
+      --host-distrobox=*)
+        HOST_DISTROBOX_MODE=true
+        DISTROBOX_NAME="${1#*=}"
+        ;;
+      *)
+        warn "Unknown option: $1"
+        ;;
+    esac
+    shift
+  done
+
+  if [[ "$HOST_DISTROBOX_MODE" == true ]] && [[ -z "$DISTROBOX_NAME" ]]; then
+    DISTROBOX_NAME="auto"
+  fi
+}
+
 configure_environment() {
   if [[ $(id -u) -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
     SUDO_CMD=(sudo)
@@ -164,6 +192,63 @@ install_ai_clis() {
   fi
 }
 
+detect_distrobox_name() {
+  if ! command -v distrobox >/dev/null 2>&1; then
+    warn 'distrobox command not found; cannot enable host-to-distrobox Neovim launcher.'
+    return 1
+  fi
+
+  local selected="$DISTROBOX_NAME"
+  if [[ "$selected" == "auto" ]]; then
+    selected="$(distrobox list --no-color 2>/dev/null | awk 'NR>1 && NF{print $1; exit}')"
+  fi
+
+  if [[ -z "$selected" ]]; then
+    warn 'No distrobox detected. Create one first or pass --host-distrobox=<name>.'
+    return 1
+  fi
+
+  DISTROBOX_NAME="$selected"
+  return 0
+}
+
+configure_host_distrobox_mode() {
+  if [[ "$HOST_DISTROBOX_MODE" != true ]]; then
+    return
+  fi
+
+  if ! detect_distrobox_name; then
+    return
+  fi
+
+  local wrapper_dir="$HOME/.local/share/nvim-distrobox-tools"
+  local launcher_dir="$HOME/.local/bin"
+  local launcher="$launcher_dir/nvim-distrobox"
+
+  mkdir -p "$wrapper_dir" "$launcher_dir"
+
+  local tools=(rust-analyzer codelldb netcoredbg dotnet node npm cargo rustc)
+  for tool in "${tools[@]}"; do
+    cat > "$wrapper_dir/$tool" <<WRAP
+#!/usr/bin/env bash
+exec distrobox enter "$DISTROBOX_NAME" -- $tool "\$@"
+WRAP
+    chmod +x "$wrapper_dir/$tool"
+  done
+
+  cat > "$launcher" <<LAUNCH
+#!/usr/bin/env bash
+export PATH="$wrapper_dir:\$PATH"
+export NVIM_DISTROBOX_NAME="$DISTROBOX_NAME"
+exec nvim "\$@"
+LAUNCH
+  chmod +x "$launcher"
+
+  info "Created host launcher: $launcher"
+  info "Use: nvim-distrobox <files>"
+  info "Selected distrobox: $DISTROBOX_NAME"
+}
+
 copy_configuration() {
   mkdir -p "$PLUGINS_DIR"
 
@@ -196,11 +281,13 @@ sync_neovim_plugins() {
   fi
 }
 
+parse_args "$@"
 configure_environment
 install_package_manager_deps
 install_rust_toolchain
 install_ai_clis
 copy_configuration
+configure_host_distrobox_mode
 sync_neovim_plugins
 
 info 'Copied/updated plugin files:'

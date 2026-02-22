@@ -102,23 +102,23 @@ git clone https://github.com/nvim-lua/kickstart.nvim.git "${env:LOCALAPPDATA}\nv
 
 </details>
 
-### Bluefin host + distrobox workflow (per-project)
+### Bluefin host + distrobox workflow (optional)
 
-You can keep **Neovim on the host** and choose a distrobox **per project at runtime**.
+If you want to keep **Neovim installed on the host** and run language/debug tools from a
+distrobox, run the installer with:
 
-Inside Neovim, in a project directory, run:
-
-```vim
-:DistroboxProject my-dev-box
+```sh
+./install.sh --host-distrobox
 ```
 
-This writes a `.nvim-distrobox` file in the project root and updates Neovim's `PATH` so
-common language/debug tools run through that distrobox for the current session.
+Or select a specific box:
 
-Useful commands:
+```sh
+./install.sh --host-distrobox=my-dev-box
+```
 
-- `:DistroboxProject` → show/apply current project setting
-- `:DistroboxProject off` → remove the project setting
+This creates `~/.local/bin/nvim-distrobox`. Launch that command instead of `nvim` to
+start host Neovim with tool wrappers that execute inside the selected distrobox.
 
 ### Post Installation
 
